@@ -63,6 +63,11 @@ export function getProjectRoot(startDir?: string): string {
   return resolve(startDir ?? process.cwd());
 }
 
+/**
+ * Load config from .agvault/config.json.
+ * Returns null only when the file does not exist.
+ * Throws when the file exists but JSON is invalid (so callers can show "fix config" instead of "not initialized").
+ */
 export function loadConfig(cwd: string): AgVaultConfig | null {
   const path = getConfigPath(cwd);
   if (!existsSync(path)) return null;
@@ -75,8 +80,9 @@ export function loadConfig(cwd: string): AgVaultConfig | null {
       exclude: parsed.exclude ?? [...DEFAULT_EXCLUDE],
       branch: parsed.branch ?? "main",
     };
-  } catch {
-    return null;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Invalid JSON in .agvault/config.json: ${msg}`);
   }
 }
 

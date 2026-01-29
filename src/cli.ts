@@ -18,6 +18,17 @@ import {
 /** Project root: directory where .agvault is initialized (pull/sync copy vault/workspace here). */
 const cwd = getProjectRoot();
 
+function handleCliError(e: unknown): never {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (msg.includes("Invalid JSON in .agvault/config.json")) {
+    console.error(chalk.red(msg));
+    console.error(chalk.dim("Fix .agvault/config.json and try again. Do not run 'agvault init' or the config will be overwritten."));
+  } else {
+    console.error(chalk.red(msg));
+  }
+  process.exit(1);
+}
+
 program
   .name("agvault")
   .description("Wallet for project-related files in a private GitHub repo (agentic workflow)")
@@ -30,8 +41,7 @@ program
     try {
       await runInit(cwd);
     } catch (e) {
-      console.error(chalk.red(e instanceof Error ? e.message : String(e)));
-      process.exit(1);
+      handleCliError(e);
     }
   });
 
@@ -47,8 +57,7 @@ program
       await runReinit(cwd);
       console.log(chalk.green("Vault reinitialized."));
     } catch (e) {
-      console.error(chalk.red(e instanceof Error ? e.message : String(e)));
-      process.exit(1);
+      handleCliError(e);
     }
   });
 
@@ -64,8 +73,7 @@ program
       const { pulled, stored } = await syncVault(cwd);
       console.log(chalk.green(`Synced: pulled ${pulled} file(s), stored ${stored} file(s).`));
     } catch (e) {
-      console.error(chalk.red(e instanceof Error ? e.message : String(e)));
-      process.exit(1);
+      handleCliError(e);
     }
   });
 
@@ -92,8 +100,7 @@ program
       const n = await pullFromVault(cwd, opts.file);
       console.log(chalk.green("Pulled " + n + " file(s) from vault."));
     } catch (e) {
-      console.error(chalk.red(e instanceof Error ? e.message : String(e)));
-      process.exit(1);
+      handleCliError(e);
     }
   });
 
@@ -109,8 +116,7 @@ program
       const n = await storeToVault(cwd);
       console.log(chalk.green("Stored " + n + " file(s) in vault."));
     } catch (e) {
-      console.error(chalk.red(e instanceof Error ? e.message : String(e)));
-      process.exit(1);
+      handleCliError(e);
     }
   });
 
@@ -156,8 +162,7 @@ program
       clearVault(cwd);
       console.log(chalk.green("Cleaned."));
     } catch (e) {
-      console.error(chalk.red(e instanceof Error ? e.message : String(e)));
-      process.exit(1);
+      handleCliError(e);
     }
   });
 
@@ -185,8 +190,7 @@ program
       if (names.length === 0) console.log(chalk.dim("Vault is empty."));
       else names.forEach((n) => console.log(n));
     } catch (e) {
-      console.error(chalk.red(e instanceof Error ? e.message : String(e)));
-      process.exit(1);
+      handleCliError(e);
     }
   });
 

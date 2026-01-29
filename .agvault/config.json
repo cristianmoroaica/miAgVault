@@ -13,7 +13,8 @@
     ".git/**",
     "dist/**",
     "build/**",
-    ".agvault/**"
+    ".agvault/**",
+    ".agvault-vault/**"
   ],
   "branch": "main"
 }

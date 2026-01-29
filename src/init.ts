@@ -1,11 +1,28 @@
 import inquirer from "inquirer";
 import chalk from "chalk";
+import { existsSync } from "fs";
 import { loadConfig, saveConfig, getConfigPath, DEFAULT_INCLUDE, DEFAULT_EXCLUDE, type AgVaultConfig } from "./config.js";
 import { loadGlobalDefault, saveGlobalDefault } from "./global-default.js";
 import { createGitHubRepoByName, isGhAvailable, parseGitHubRepoUrl } from "./gh.js";
 
 export async function runInit(cwd: string): Promise<void> {
-  const existing = loadConfig(cwd);
+  let existing: AgVaultConfig | null;
+  try {
+    existing = loadConfig(cwd);
+  } catch (err) {
+    const configPath = getConfigPath(cwd);
+    if (!existsSync(configPath)) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(chalk.red(msg));
+    const { overwrite } = await inquirer.prompt<{ overwrite: boolean }>([
+      { type: "confirm", name: "overwrite", message: "Config file is invalid (check JSON). Overwrite with new config?", default: false },
+    ]);
+    if (!overwrite) {
+      console.log(chalk.dim("Fix .agvault/config.json and try again."));
+      return;
+    }
+    existing = null;
+  }
   const hasExisting = existing !== null && Boolean(existing.repoUrl);
 
   let overwrite = true;
