@@ -258,6 +258,83 @@ export async function listVaultFiles(vaultPath: string): Promise<string[]> {
   return out.sort();
 }
 
+/** List files in the vault for a single workspace (paths relative to project root). */
+export function listVaultFilesForWorkspace(vaultPath: string, workspaceName: string): string[] {
+  const workspaceRoot = join(vaultPath, "vault", workspaceName);
+  if (!existsSync(workspaceRoot)) return [];
+
+  const out: string[] = [];
+  const walk = (dir: string, prefix: string) => {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const e of entries) {
+      const rel = prefix ? `${prefix}/${e.name}` : e.name;
+      const full = join(dir, e.name);
+      if (e.isDirectory()) walk(full, rel);
+      else out.push(rel);
+    }
+  };
+  walk(workspaceRoot, "");
+  return out.sort();
+}
+
+/** List files in the vault for the current project only (clone to temp, list workspace, delete temp). */
+export async function listVaultFilesForProjectRemote(
+  cwd: string,
+  opts?: WithTempVaultOptions
+): Promise<string[]> {
+  return withTempVault(
+    cwd,
+    (vaultPath, _git, _ctx) => {
+      const workspaceName = getWorkspaceName(cwd);
+      return Promise.resolve(listVaultFilesForWorkspace(vaultPath, workspaceName));
+    },
+    opts
+  );
+}
+
+/** Remove given workspace-relative paths from the vault (clone to temp, delete files, commit, push). */
+export async function removeFromVault(
+  cwd: string,
+  relativePaths: string[],
+  opts?: WithTempVaultOptions
+): Promise<void> {
+  if (relativePaths.length === 0) return;
+  const config = loadConfig(cwd)!;
+  const workspaceName = getWorkspaceName(cwd);
+  await withTempVault(cwd, async (vaultPath, git, ctx) => {
+    const workspaceRoot = join(vaultPath, "vault", workspaceName);
+    if (!existsSync(workspaceRoot)) return;
+    for (const rel of relativePaths) {
+      const normalized = rel.replace(/\\/g, "/");
+      const full = join(workspaceRoot, normalized);
+      if (existsSync(full)) rmSync(full, { force: true });
+    }
+    const removeEmptyDirs = (dir: string): void => {
+      if (!existsSync(dir)) return;
+      const entries = readdirSync(dir, { withFileTypes: true });
+      for (const e of entries) {
+        const full = join(dir, e.name);
+        if (e.isDirectory()) removeEmptyDirs(full);
+      }
+      if (readdirSync(dir).length === 0) rmSync(dir, { recursive: true });
+    };
+    removeEmptyDirs(workspaceRoot);
+    const status = await git.status();
+    const hasChanges =
+      status.files.length > 0 || status.not_added.length > 0 || status.deleted.length > 0;
+    if (!hasChanges) return;
+    await git.add(".");
+    await git.commit("agvault: remove");
+    ctx.onPhase?.("Pushing…");
+    try {
+      await git.push("origin", config.branch || "main");
+    } catch (err) {
+      if (!isRepoNotFoundError(err)) throw err;
+      throw err;
+    }
+  }, opts);
+}
+
 /** Pull from vault: clone to temp, copy vault/workspace files to project root, delete temp. Returns file count. */
 export async function pullFromVault(
   cwd: string,

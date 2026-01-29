@@ -97,3 +97,30 @@ export function isInitialized(cwd: string): boolean {
   const config = loadConfig(cwd);
   return config !== null && Boolean(config.repoUrl);
 }
+
+/** Normalize path to forward slashes for consistency with vault paths. */
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+/** Add a path to config.exclude (so it won't be stored). Saves config. */
+export function addToExclude(cwd: string, path: string): void {
+  const config = loadConfig(cwd);
+  if (!config?.repoUrl) throw new Error("Not initialized. Run 'agvault init' first.");
+  const normalized = normalizePath(path);
+  if (config.exclude.includes(normalized)) return;
+  config.exclude = [...config.exclude, normalized];
+  saveConfig(cwd, config);
+}
+
+/** Ensure a path is included (add to include if not present, remove from exclude if present). Saves config. */
+export function ensurePathIncluded(cwd: string, path: string): void {
+  const config = loadConfig(cwd);
+  if (!config?.repoUrl) throw new Error("Not initialized. Run 'agvault init' first.");
+  const normalized = normalizePath(path);
+  config.exclude = config.exclude.filter((p) => p !== normalized);
+  if (!config.include.includes(normalized)) {
+    config.include = [...config.include, normalized];
+  }
+  saveConfig(cwd, config);
+}

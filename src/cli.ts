@@ -2,16 +2,17 @@
 import { program } from "commander";
 import inquirer from "inquirer";
 import { runInit } from "./init.js";
-import { isInitialized, getProjectRoot } from "./config.js";
+import { isInitialized, getProjectRoot, addToExclude, ensurePathIncluded } from "./config.js";
 import {
   collectFiles,
-  listVaultFilesRemote,
+  listVaultFilesForProjectRemote,
   pullFromVault,
   storeToVault,
   syncVault,
   runReinit,
   clearVault,
   purgeVault,
+  removeFromVault,
 } from "./vault.js";
 import * as out from "./output.js";
 
@@ -41,8 +42,12 @@ Examples:
   agvault init
   agvault sync
   agvault pull --file README.md
+  agvault list
   agvault list --local
-  agvault list --json
+  agvault add README.md
+  agvault add
+  agvault remove docs/notes.md
+  agvault remove
 `
   );
 
@@ -228,7 +233,7 @@ program
 
 program
   .command("list")
-  .description("List files in the vault (clone to temp, list, delete) or list files that would be collected (--local).")
+  .description("List files stored in the vault for this project only, or list files that would be collected (--local).")
   .option("-l, --local", "List files that would be collected from current project (include patterns)")
   .option("--json", "Output as JSON (array of paths)")
   .action(async (opts: { local?: boolean; json?: boolean }) => {
@@ -256,7 +261,7 @@ program
       spinner.start("Listing vault…");
       let names: string[];
       try {
-        names = await listVaultFilesRemote(cwd, { onPhase: (msg) => spinner.updateText(msg) });
+        names = await listVaultFilesForProjectRemote(cwd, { onPhase: (msg) => spinner.updateText(msg) });
         if (opts.json) {
           spinner.stop();
           console.log(JSON.stringify(names));
@@ -267,8 +272,126 @@ program
         spinner.fail();
         throw e;
       }
-      if (names.length === 0) out.dim("Vault is empty.");
+      if (names.length === 0) out.dim("No files in vault for this project.");
       else out.printTable(["Path"], names.map((n) => [n]));
+    } catch (e) {
+      handleCliError(e);
+    }
+  });
+
+program
+  .command("remove [path]")
+  .description("Remove a file from the vault and add it to exclude. Without path, show a list to choose from.")
+  .action(async (pathArg: string | undefined) => {
+    try {
+      if (!isInitialized(cwd)) {
+        out.error("Not initialized. Run 'agvault init' first.");
+        process.exit(1);
+      }
+      let paths: string[] = [];
+      if (pathArg?.trim()) {
+        paths = [pathArg.trim().replace(/\\/g, "/")];
+      } else {
+        const spinner = out.createSpinner();
+        spinner.start("Listing vault…");
+        let inVault: string[];
+        try {
+          inVault = await listVaultFilesForProjectRemote(cwd, { onPhase: (msg) => spinner.updateText(msg) });
+          spinner.succeed("Listed vault.");
+        } catch (e) {
+          spinner.fail();
+          throw e;
+        }
+        if (inVault.length === 0) {
+          out.dim("No files in vault for this project to remove.");
+          return;
+        }
+        const { selected } = await inquirer.prompt<{ selected: string }>([
+          {
+            type: "list",
+            name: "selected",
+            message: "Choose a file to remove from the vault:",
+            choices: inVault,
+          },
+        ]);
+        paths = [selected];
+      }
+      for (const p of paths) addToExclude(cwd, p);
+      const spinner = out.createSpinner();
+      spinner.start("Removing from vault…");
+      try {
+        await removeFromVault(cwd, paths, { onPhase: (msg) => spinner.updateText(msg) });
+        spinner.succeed("Removed " + paths.length + " file(s) from vault and added to exclude.");
+      } catch (e) {
+        spinner.fail();
+        throw e;
+      }
+    } catch (e) {
+      handleCliError(e);
+    }
+  });
+
+program
+  .command("add [path]")
+  .description("Add a file to the vault (include and store). Without path, show a list of addable files to choose from.")
+  .action(async (pathArg: string | undefined) => {
+    try {
+      if (!isInitialized(cwd)) {
+        out.error("Not initialized. Run 'agvault init' first.");
+        process.exit(1);
+      }
+      if (pathArg?.trim()) {
+        const path = pathArg.trim().replace(/\\/g, "/");
+        ensurePathIncluded(cwd, path);
+        const spinner = out.createSpinner();
+        spinner.start("Storing in vault…");
+        try {
+          await storeToVault(cwd, { onPhase: (msg) => spinner.updateText(msg) });
+          spinner.succeed("Added and stored " + path + " in vault.");
+        } catch (e) {
+          spinner.fail();
+          throw e;
+        }
+        return;
+      }
+      const [collected, inVault] = await Promise.all([
+        collectFiles(cwd),
+        (async () => {
+          const spinner = out.createSpinner();
+          spinner.start("Listing vault…");
+          try {
+            const list = await listVaultFilesForProjectRemote(cwd, { onPhase: (msg) => spinner.updateText(msg) });
+            spinner.succeed("Listed vault.");
+            return list;
+          } catch (e) {
+            spinner.fail();
+            throw e;
+          }
+        })(),
+      ]);
+      const inVaultSet = new Set(inVault);
+      const candidates = collected.map((f) => f.relativePath).filter((p) => !inVaultSet.has(p));
+      if (candidates.length === 0) {
+        out.dim("All included files are already in the vault.");
+        return;
+      }
+      const { selected } = await inquirer.prompt<{ selected: string }>([
+        {
+          type: "list",
+          name: "selected",
+          message: "Choose a file to add to the vault:",
+          choices: candidates,
+        },
+      ]);
+      const spinner = out.createSpinner();
+      spinner.start("Storing in vault…");
+      try {
+        await storeToVault(cwd, { onPhase: (msg) => spinner.updateText(msg) });
+        spinner.succeed("Stored selected file(s) in vault.");
+      } catch (e) {
+        spinner.fail();
+        throw e;
+      }
     } catch (e) {
       handleCliError(e);
     }
