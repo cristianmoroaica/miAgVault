@@ -50,6 +50,14 @@ async function createTempVaultRepo(tempDir: string, repoUrl: string, branch: str
   await git.branch(["-M", branch]);
 }
 
+export interface WithTempVaultOptions {
+  onPhase?: (msg: string) => void;
+}
+
+export interface WithTempVaultContext {
+  onPhase?: (msg: string) => void;
+}
+
 /**
  * Clone vault repo into a temp directory, run the callback, then delete the temp dir.
  * No vault data is left on disk after the callback returns.
@@ -57,12 +65,14 @@ async function createTempVaultRepo(tempDir: string, repoUrl: string, branch: str
  */
 export async function withTempVault<T>(
   cwd: string,
-  fn: (vaultPath: string, git: SimpleGit) => Promise<T>
+  fn: (vaultPath: string, git: SimpleGit, ctx: WithTempVaultContext) => Promise<T>,
+  opts?: WithTempVaultOptions
 ): Promise<T> {
   const config = loadConfig(cwd);
   if (!config?.repoUrl) throw new Error("Not initialized. Run 'agvault init' first.");
   const branch = config.branch || "main";
   const tempDir = mkdtempSync(join(tmpdir(), "agvault-"));
+  const ctx: WithTempVaultContext = { onPhase: opts?.onPhase };
 
   // Use gh for Git credentials when available so pull/sync don't prompt for username/password
   if (parseGitHubRepoUrl(config.repoUrl) && isGhAvailable()) {
@@ -70,6 +80,7 @@ export async function withTempVault<T>(
   }
 
   try {
+    opts?.onPhase?.("Cloning vault…");
     try {
       const git = simpleGit(cwd);
       await git.clone(config.repoUrl, tempDir, ["--branch", branch]);
@@ -79,15 +90,15 @@ export async function withTempVault<T>(
     }
 
     const git = simpleGit(tempDir);
-    return await fn(tempDir, git);
+    return await fn(tempDir, git, ctx);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
 }
 
 /** Delete all projects from the vault (empty vault content, commit, push). Caller should confirm first. */
-export async function purgeVault(cwd: string): Promise<void> {
-  await withTempVault(cwd, async (vaultPath, git) => {
+export async function purgeVault(cwd: string, opts?: WithTempVaultOptions): Promise<void> {
+  await withTempVault(cwd, async (vaultPath, git, ctx) => {
     const config = loadConfig(cwd)!;
     const vaultContent = join(vaultPath, "vault");
     if (!existsSync(vaultContent)) return;
@@ -99,8 +110,9 @@ export async function purgeVault(cwd: string): Promise<void> {
     writeFileSync(join(vaultContent, ".gitkeep"), "", "utf-8");
     await git.add(".");
     await git.commit("agvault: purge all projects");
+    ctx.onPhase?.("Pushing…");
     await git.push("origin", config.branch || "main");
-  });
+  }, opts);
 }
 
 /** Workspace name for vault paths: basename of cwd (e.g. project folder name), fallback "default". */
@@ -249,18 +261,21 @@ export async function listVaultFiles(vaultPath: string): Promise<string[]> {
 /** Pull from vault: clone to temp, copy vault/workspace files to project root, delete temp. Returns file count. */
 export async function pullFromVault(
   cwd: string,
-  specificPaths?: string[]
+  specificPaths?: string[],
+  opts?: WithTempVaultOptions
 ): Promise<number> {
-  return withTempVault(cwd, async (vaultPath) => {
+  return withTempVault(cwd, async (vaultPath, _git, ctx) => {
+    ctx.onPhase?.("Copying files…");
     return copyFromVault(vaultPath, cwd, specificPaths);
-  });
+  }, opts);
 }
 
 /** Store to vault: clone to temp, copy project files into vault/workspace, commit, push, delete temp. */
-export async function storeToVault(cwd: string): Promise<number> {
+export async function storeToVault(cwd: string, opts?: WithTempVaultOptions): Promise<number> {
   const files = await collectFiles(cwd);
-  return withTempVault(cwd, async (vaultPath, git) => {
+  return withTempVault(cwd, async (vaultPath, git, ctx) => {
     const config = loadConfig(cwd)!;
+    ctx.onPhase?.("Copying files…");
     copyToVault(files, vaultPath, cwd);
     const allowed = new Set(files.map((f) => f.relativePath));
     removeExcludedFromVault(vaultPath, cwd, allowed);
@@ -271,6 +286,7 @@ export async function storeToVault(cwd: string): Promise<number> {
 
     await git.add(".");
     await git.commit("agvault: store");
+    ctx.onPhase?.("Pushing…");
 
     try {
       await git.push("origin", config.branch || "main");
@@ -288,15 +304,22 @@ export async function storeToVault(cwd: string): Promise<number> {
       );
     }
     return files.length;
-  });
+  }, opts);
 }
 
 /** Sync: pull (clone→copy to root→delete temp), then store (clone→merge local→push→delete temp). */
-export async function syncVault(cwd: string): Promise<{ pulled: number; stored: number }> {
-  const pulled = await pullFromVault(cwd);
+export async function syncVault(cwd: string, opts?: WithTempVaultOptions): Promise<{ pulled: number; stored: number }> {
+  const pullOpts: WithTempVaultOptions = {
+    onPhase: (msg) => opts?.onPhase?.(msg === "Cloning vault…" ? "Syncing: pulling…" : msg),
+  };
+  const pulled = await pullFromVault(cwd, undefined, pullOpts);
   const files = await collectFiles(cwd);
-  const stored = await withTempVault(cwd, async (vaultPath, git) => {
+  const storeOpts: WithTempVaultOptions = {
+    onPhase: (msg) => opts?.onPhase?.(msg === "Cloning vault…" ? "Syncing: storing…" : msg),
+  };
+  const stored = await withTempVault(cwd, async (vaultPath, git, ctx) => {
     const config = loadConfig(cwd)!;
+    ctx.onPhase?.("Copying files…");
     copyToVault(files, vaultPath, cwd);
     const allowed = new Set(files.map((f) => f.relativePath));
     removeExcludedFromVault(vaultPath, cwd, allowed);
@@ -307,6 +330,7 @@ export async function syncVault(cwd: string): Promise<{ pulled: number; stored: 
 
     await git.add(".");
     await git.commit("agvault: sync");
+    ctx.onPhase?.("Pushing…");
     try {
       await git.push("origin", config.branch || "main");
     } catch (err) {
@@ -317,23 +341,23 @@ export async function syncVault(cwd: string): Promise<{ pulled: number; stored: 
       throw err;
     }
     return files.length;
-  });
+  }, storeOpts);
   return { pulled, stored };
 }
 
 /** List files in the vault (clone to temp, list, delete temp). */
-export async function listVaultFilesRemote(cwd: string): Promise<string[]> {
-  return withTempVault(cwd, async (vaultPath) => listVaultFiles(vaultPath));
+export async function listVaultFilesRemote(cwd: string, opts?: WithTempVaultOptions): Promise<string[]> {
+  return withTempVault(cwd, async (vaultPath, _git, _ctx) => listVaultFiles(vaultPath), opts);
 }
 
 /**
  * Reinit: verify config and remote (clone to temp, then delete). Optionally remove legacy .agvault/repo if present.
  */
-export async function runReinit(cwd: string): Promise<void> {
+export async function runReinit(cwd: string, opts?: WithTempVaultOptions): Promise<void> {
   const config = loadConfig(cwd);
   if (!config?.repoUrl) throw new Error("Not initialized. Run 'agvault init' first.");
   clearVault(cwd);
-  await withTempVault(cwd, async () => {
+  await withTempVault(cwd, async (_vaultPath, _git, _ctx) => {
     // Just clone and delete to verify remote is reachable
-  });
+  }, opts);
 }

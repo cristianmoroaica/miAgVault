@@ -1,9 +1,9 @@
 import inquirer from "inquirer";
-import chalk from "chalk";
 import { existsSync } from "fs";
 import { loadConfig, saveConfig, getConfigPath, DEFAULT_INCLUDE, DEFAULT_EXCLUDE, type AgVaultConfig } from "./config.js";
 import { loadGlobalDefault, saveGlobalDefault } from "./global-default.js";
 import { createGitHubRepoByName, isGhAvailable, parseGitHubRepoUrl } from "./gh.js";
+import * as out from "./output.js";
 
 export async function runInit(cwd: string): Promise<void> {
   let existing: AgVaultConfig | null;
@@ -13,12 +13,12 @@ export async function runInit(cwd: string): Promise<void> {
     const configPath = getConfigPath(cwd);
     if (!existsSync(configPath)) throw err;
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(chalk.red(msg));
+    out.error(msg);
     const { overwrite } = await inquirer.prompt<{ overwrite: boolean }>([
       { type: "confirm", name: "overwrite", message: "Config file is invalid (check JSON). Overwrite with new config?", default: false },
     ]);
     if (!overwrite) {
-      console.log(chalk.dim("Fix .agvault/config.json and try again."));
+      out.dim("Fix .agvault/config.json and try again.");
       return;
     }
     existing = null;
@@ -50,8 +50,8 @@ export async function runInit(cwd: string): Promise<void> {
       if (exc.length) exclude = [...new Set([...exclude, ...exc])];
     }
     saveConfig(cwd, { ...existing!, include, exclude });
-    console.log(chalk.green("Config updated."));
-    console.log(chalk.dim("Config: " + getConfigPath(cwd)));
+    out.success("Config updated.");
+    out.dim("Config: " + getConfigPath(cwd));
     return;
   }
 
@@ -62,7 +62,7 @@ export async function runInit(cwd: string): Promise<void> {
   if (useDefaultVault) {
     const repoUrl = globalDefault!.defaultRepoUrl;
     const repoLabel = parseGitHubRepoUrl(repoUrl) ?? repoUrl;
-    console.log(chalk.dim("Using default vault: " + repoLabel));
+    out.dim("Using default vault: " + repoLabel);
     const answers = await inquirer.prompt<{ customize: boolean; includeExtra: string; excludeExtra: string }>([
       { type: "confirm", name: "customize", message: "Add or exclude more files/folders besides the predefined ones?", default: false },
       { type: "input", name: "includeExtra", message: "Extra include patterns (comma-separated globs):", default: "", when: (a) => a.customize },
@@ -79,8 +79,8 @@ export async function runInit(cwd: string): Promise<void> {
     const config: AgVaultConfig = { repoUrl, include, exclude, branch: existing?.branch ?? "main" };
     saveConfig(cwd, config);
     saveGlobalDefault(repoUrl);
-    console.log(chalk.green("Vault initialized."));
-    console.log(chalk.dim("Config: " + getConfigPath(cwd)));
+    out.success("Vault initialized.");
+    out.dim("Config: " + getConfigPath(cwd));
     return;
   }
 
@@ -136,23 +136,23 @@ export async function runInit(cwd: string): Promise<void> {
   ]);
 
   let repoUrl = (answers.repoUrl ?? "").trim();
-  if (!repoUrl) {
+    if (!repoUrl) {
     if (answers.createRepo && answers.repoName?.trim()) {
       if (!isGhAvailable()) {
-        console.log(chalk.yellow("GitHub CLI (gh) not found. Install it from https://cli.github.com/ and run gh auth login, then run agvault init again."));
+        out.warn("GitHub CLI (gh) not found. Install it from https://cli.github.com/ and run gh auth login, then run agvault init again.");
         return;
       }
       const result = createGitHubRepoByName(answers.repoName.trim());
       if (result.ok) {
         repoUrl = result.url;
-        console.log(chalk.green("Created private repo: " + repoUrl));
+        out.success("Created private repo: " + repoUrl);
       } else {
-        console.log(chalk.yellow("Could not create repo: " + result.error));
-        console.log(chalk.dim("Run gh auth login and try again, or provide a repo URL next time."));
+        out.warn("Could not create repo: " + result.error);
+        out.dim("Run gh auth login and try again, or provide a repo URL next time.");
         return;
       }
     } else {
-      console.log(chalk.yellow("No repo URL provided. Run agvault init again when ready, or leave URL empty to create a new repo with GitHub CLI."));
+      out.warn("No repo URL provided. Run agvault init again when ready, or leave URL empty to create a new repo with GitHub CLI.");
       return;
     }
   }
@@ -176,6 +176,6 @@ export async function runInit(cwd: string): Promise<void> {
 
   saveConfig(cwd, config);
   saveGlobalDefault(repoUrl);
-  console.log(chalk.green("Vault initialized."));
-  console.log(chalk.dim("Config: " + getConfigPath(cwd)));
+  out.success("Vault initialized.");
+  out.dim("Config: " + getConfigPath(cwd));
 }

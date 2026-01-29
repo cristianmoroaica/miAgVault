@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { program } from "commander";
-import chalk from "chalk";
 import inquirer from "inquirer";
 import { runInit } from "./init.js";
 import { isInitialized, getProjectRoot } from "./config.js";
@@ -14,6 +13,7 @@ import {
   clearVault,
   purgeVault,
 } from "./vault.js";
+import * as out from "./output.js";
 
 /** Project root: directory where .agvault is initialized (pull/sync copy vault/workspace here). */
 const cwd = getProjectRoot();
@@ -21,10 +21,10 @@ const cwd = getProjectRoot();
 function handleCliError(e: unknown): never {
   const msg = e instanceof Error ? e.message : String(e);
   if (msg.includes("Invalid JSON in .agvault/config.json")) {
-    console.error(chalk.red(msg));
-    console.error(chalk.dim("Fix .agvault/config.json and try again. Do not run 'agvault init' or the config will be overwritten."));
+    out.error(msg);
+    out.dim("Fix .agvault/config.json and try again. Do not run 'agvault init' or the config will be overwritten.");
   } else {
-    console.error(chalk.red(msg));
+    out.error(msg);
   }
   process.exit(1);
 }
@@ -32,7 +32,23 @@ function handleCliError(e: unknown): never {
 program
   .name("agvault")
   .description("Wallet for project-related files in a private GitHub repo (agentic workflow)")
-  .version("0.1.0");
+  .version("0.1.0")
+  .option("-q, --quiet", "Suppress success and info messages (errors only)")
+  .addHelpText(
+    "after",
+    `
+Examples:
+  agvault init
+  agvault sync
+  agvault pull --file README.md
+  agvault list --local
+  agvault list --json
+`
+  );
+
+program.hook("preAction", () => {
+  out.setQuiet(program.opts().quiet ?? false);
+});
 
 program
   .command("init")
@@ -51,11 +67,18 @@ program
   .action(async () => {
     try {
       if (!isInitialized(cwd)) {
-        console.error(chalk.red("Not initialized. Run 'agvault init' first."));
+        out.error("Not initialized. Run 'agvault init' first.");
         process.exit(1);
       }
-      await runReinit(cwd);
-      console.log(chalk.green("Vault reinitialized."));
+      const spinner = out.createSpinner();
+      spinner.start("Verifying vault…");
+      try {
+        await runReinit(cwd, { onPhase: (msg) => spinner.updateText(msg) });
+        spinner.succeed("Vault reinitialized.");
+      } catch (e) {
+        spinner.fail();
+        throw e;
+      }
     } catch (e) {
       handleCliError(e);
     }
@@ -64,14 +87,28 @@ program
 program
   .command("sync")
   .description("Sync with vault: pull latest into project root, merge local files, push. Vault is never stored on disk.")
-  .action(async () => {
+  .option("--json", "Output result as JSON { pulled, stored }")
+  .action(async (opts: { json?: boolean }) => {
     try {
       if (!isInitialized(cwd)) {
-        console.error(chalk.red("Not initialized. Run 'agvault init' first."));
+        out.error("Not initialized. Run 'agvault init' first.");
         process.exit(1);
       }
-      const { pulled, stored } = await syncVault(cwd);
-      console.log(chalk.green(`Synced: pulled ${pulled} file(s), stored ${stored} file(s).`));
+      const spinner = out.createSpinner();
+      spinner.start("Syncing…");
+      let result: { pulled: number; stored: number };
+      try {
+        result = await syncVault(cwd, { onPhase: (msg) => spinner.updateText(msg) });
+        if (opts.json) {
+          spinner.stop();
+          console.log(JSON.stringify(result));
+        } else {
+          spinner.succeed(`Synced: pulled ${result.pulled} file(s), stored ${result.stored} file(s).`);
+        }
+      } catch (e) {
+        spinner.fail();
+        throw e;
+      }
     } catch (e) {
       handleCliError(e);
     }
@@ -86,19 +123,27 @@ program
     try {
       if (!isInitialized(cwd)) {
         if (opts.initIfMissing !== false) {
-          console.log(chalk.dim("Not initialized. Running init..."));
+          out.dim("Not initialized. Running init...");
           await runInit(cwd);
           if (!isInitialized(cwd)) {
-            console.error(chalk.red("Init did not complete. Run 'agvault init' then 'agvault pull'."));
+            out.error("Init did not complete. Run 'agvault init' then 'agvault pull'.");
             process.exit(1);
           }
         } else {
-          console.error(chalk.red("Not initialized. Run 'agvault init' first."));
+          out.error("Not initialized. Run 'agvault init' first.");
           process.exit(1);
         }
       }
-      const n = await pullFromVault(cwd, opts.file);
-      console.log(chalk.green("Pulled " + n + " file(s) from vault."));
+      const spinner = out.createSpinner();
+      spinner.start("Cloning vault…");
+      let n: number;
+      try {
+        n = await pullFromVault(cwd, opts.file, { onPhase: (msg) => spinner.updateText(msg) });
+        spinner.succeed("Pulled " + n + " file(s) from vault.");
+      } catch (e) {
+        spinner.fail();
+        throw e;
+      }
     } catch (e) {
       handleCliError(e);
     }
@@ -110,11 +155,19 @@ program
   .action(async () => {
     try {
       if (!isInitialized(cwd)) {
-        console.error(chalk.red("Not initialized. Run 'agvault init' first."));
+        out.error("Not initialized. Run 'agvault init' first.");
         process.exit(1);
       }
-      const n = await storeToVault(cwd);
-      console.log(chalk.green("Stored " + n + " file(s) in vault."));
+      const spinner = out.createSpinner();
+      spinner.start("Cloning vault…");
+      let n: number;
+      try {
+        n = await storeToVault(cwd, { onPhase: (msg) => spinner.updateText(msg) });
+        spinner.succeed("Stored " + n + " file(s) in vault.");
+      } catch (e) {
+        spinner.fail();
+        throw e;
+      }
     } catch (e) {
       handleCliError(e);
     }
@@ -127,7 +180,7 @@ program
   .action(async (opts: { purge?: boolean }) => {
     try {
       if (!isInitialized(cwd)) {
-        console.error(chalk.red("Not initialized. Run 'agvault init' first."));
+        out.error("Not initialized. Run 'agvault init' first.");
         process.exit(1);
       }
       if (opts.purge) {
@@ -140,11 +193,18 @@ program
           },
         ]);
         if (!confirm) {
-          console.log(chalk.dim("Cancelled."));
+          out.dim("Cancelled.");
           return;
         }
-        await purgeVault(cwd);
-        console.log(chalk.green("Vault purged (all projects removed from remote)."));
+        const spinner = out.createSpinner();
+        spinner.start("Cloning vault…");
+        try {
+          await purgeVault(cwd, { onPhase: (msg) => spinner.updateText(msg) });
+          spinner.succeed("Vault purged (all projects removed from remote).");
+        } catch (e) {
+          spinner.fail();
+          throw e;
+        }
         return;
       }
       const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
@@ -156,11 +216,11 @@ program
         },
       ]);
       if (!confirm) {
-        console.log(chalk.dim("Cancelled."));
+        out.dim("Cancelled.");
         return;
       }
       clearVault(cwd);
-      console.log(chalk.green("Cleaned."));
+      out.success("Cleaned.");
     } catch (e) {
       handleCliError(e);
     }
@@ -170,25 +230,45 @@ program
   .command("list")
   .description("List files in the vault (clone to temp, list, delete) or list files that would be collected (--local).")
   .option("-l, --local", "List files that would be collected from current project (include patterns)")
-  .action(async (opts: { local?: boolean }) => {
+  .option("--json", "Output as JSON (array of paths)")
+  .action(async (opts: { local?: boolean; json?: boolean }) => {
     try {
       if (opts.local) {
         if (!isInitialized(cwd)) {
-          console.error(chalk.red("Not initialized. Run 'agvault init' first."));
+          out.error("Not initialized. Run 'agvault init' first.");
           process.exit(1);
         }
         const files = await collectFiles(cwd);
-        if (files.length === 0) console.log(chalk.dim("No files match include patterns."));
-        else files.forEach((f) => console.log(f.relativePath));
+        const paths = files.map((f) => f.relativePath);
+        if (opts.json) {
+          console.log(JSON.stringify(paths));
+          return;
+        }
+        if (paths.length === 0) out.dim("No files match include patterns.");
+        else out.printTable(["Path"], paths.map((p) => [p]));
         return;
       }
       if (!isInitialized(cwd)) {
-        console.error(chalk.red("Not initialized. Run 'agvault init' first."));
+        out.error("Not initialized. Run 'agvault init' first.");
         process.exit(1);
       }
-      const names = await listVaultFilesRemote(cwd);
-      if (names.length === 0) console.log(chalk.dim("Vault is empty."));
-      else names.forEach((n) => console.log(n));
+      const spinner = out.createSpinner();
+      spinner.start("Listing vault…");
+      let names: string[];
+      try {
+        names = await listVaultFilesRemote(cwd, { onPhase: (msg) => spinner.updateText(msg) });
+        if (opts.json) {
+          spinner.stop();
+          console.log(JSON.stringify(names));
+          return;
+        }
+        spinner.succeed("Listed vault.");
+      } catch (e) {
+        spinner.fail();
+        throw e;
+      }
+      if (names.length === 0) out.dim("Vault is empty.");
+      else out.printTable(["Path"], names.map((n) => [n]));
     } catch (e) {
       handleCliError(e);
     }
