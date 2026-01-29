@@ -39,7 +39,9 @@ Follow the prompts: enter the vault repo URL (HTTPS or SSH) and optionally add/r
 | `agvault sync` | Pull latest into project root (temp clone → copy → delete), then merge local files and push (temp clone → push → delete). |
 | `agvault pull` | Clone vault to temp, copy vault/workspace files into project root, delete temp. Use `--file` to pull specific files only. |
 | `agvault store` | Clone vault to temp, copy project files into vault/workspace, commit & push, delete temp. |
-| `agvault list` | List files in the vault (clone to temp, list, delete). Use `--local` to list files that would be collected. |
+| `agvault list` | List files stored in the vault **for this project only**. Use `--local` to list files that would be collected (include patterns). Use `--json` for JSON output. |
+| `agvault add [path]` | Add a file to the vault: ensure it’s included (and not excluded), then store. Without `path`, shows a list of addable files (included but not yet in vault) to choose from. |
+| `agvault remove [path]` | Remove a file from the vault and add it to exclude so it won’t be stored again. Without `path`, shows a list of files in the vault to choose from. |
 
 ### Examples
 
@@ -61,9 +63,17 @@ agvault store
 # Two-way sync: pull, merge local files, push
 agvault sync
 
-# See what’s in the vault or what would be stored
+# List files in the vault for this project only (or list what would be collected with --local)
 agvault list
 agvault list --local
+
+# Add a file to the vault (include + store); without path, pick from a list of addable files
+agvault add README.md
+agvault add
+
+# Remove a file from the vault and add to exclude; without path, pick from a list
+agvault remove docs/notes.md
+agvault remove
 ```
 
 ## Default include / exclude
@@ -78,7 +88,7 @@ agvault list --local
 
 - `node_modules/**`, `.git/**`, `dist/**`, `build/**`, `.agvault/**`
 
-You can add or remove patterns during `agvault init` or by editing `.agvault/config.json`.
+You can add or remove patterns during `agvault init` or by editing `.agvault/config.json`. The commands **`agvault add <path>`** and **`agvault remove <path>`** (or their interactive list when path is omitted) update include/exclude and the vault for you.
 
 ## Config location
 
