@@ -23,11 +23,14 @@ This document describes how to use Git with the **agvault** project: workflow, c
 
 - **Main branch:** `main` (default). Stable, releasable code.
 - **Remotes:** `origin` points to the canonical GitHub repository.
+- **Published package:** End users install with `npm i -g agvault`; this repo is for development and contributing.
 - **Build output:** TypeScript compiles to `dist/`. Commit source (`src/`), not `dist/`; it is ignored and built via `npm run build`.
 
 ---
 
 ## Getting started
+
+These steps are for **contributors** who want to work on the agvault source. If you only want to use agvault, install it with `npm i -g agvault` (see [README](../README.md)).
 
 ### Clone the repository
 

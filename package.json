@@ -23,6 +23,12 @@
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cristianmoroaica/miAgVault.git"
+  },
+  "bugs": "https://github.com/cristianmoroaica/miAgVault/issues",
+  "homepage": "https://github.com/cristianmoroaica/miAgVault#readme",
   "engines": {
     "node": ">=18"
   },

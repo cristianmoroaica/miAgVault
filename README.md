@@ -8,16 +8,13 @@ A **wallet** for project-related files and folders that you don’t want in the 
 
 ## Setup
 
-1. **(Optional)** Create a private GitHub repo in advance, or let agvault create it (see below).
-2. Install and link locally:
+1. **Install** agvault globally:
 
 ```bash
-npm install
-npm run build
-npm link
+npm i -g agvault
 ```
 
-Or install globally: `npm install -g .`
+2. **(Optional)** Create a private GitHub repo in advance, or let agvault create it (see below).
 
 3. In any project where you want the vault:
 
@@ -111,3 +108,5 @@ So you can run `agvault init` with a URL like `https://github.com/you/my-agvault
 - Node.js 18+
 - Git
 - A private GitHub repo for the vault (create it yourself or let agvault create it via GitHub CLI)
+
+**Developing from source:** Clone the repo, then `npm install && npm run build && npm link` to use your local build as the `agvault` command.
