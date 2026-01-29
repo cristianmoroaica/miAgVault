@@ -1,0 +1,19 @@
+{
+  "repoUrl": "https://github.com/cristianmoroaica/agvault.git",
+  "include": [
+    "**/*.md",
+    "**/*.mdc",
+    ".cursor/**",
+    ".cursorrules",
+    "docs/**",
+    "*.md"
+  ],
+  "exclude": [
+    "node_modules/**",
+    ".git/**",
+    "dist/**",
+    "build/**",
+    ".agvault/**"
+  ],
+  "branch": "main"
+}

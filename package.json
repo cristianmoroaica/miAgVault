@@ -1,0 +1,45 @@
+{
+  "name": "agvault",
+  "version": "0.1.0",
+  "description": "Wallet for project-related files stored in a private GitHub repo (agentic workflow)",
+  "type": "module",
+  "main": "dist/cli.js",
+  "bin": {
+    "agvault": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "dev": "tsx src/cli.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "vault",
+    "wallet",
+    "agentic",
+    "github",
+    "private",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "glob": "^10.4.5",
+    "inquirer": "^9.2.23",
+    "simple-git": "^3.27.0"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^9.0.7",
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  },
+  "files": [
+    "dist"
+  ]
+}
