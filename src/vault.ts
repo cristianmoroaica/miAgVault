@@ -154,6 +154,47 @@ export function copyToVault(files: VaultFile[], vaultPath: string, cwd: string):
   }
 }
 
+/**
+ * Remove from the vault workspace any file that is not in the allowed set
+ * (e.g. newly excluded by config). Removes empty directories so git sees deletions.
+ */
+function removeExcludedFromVault(
+  vaultPath: string,
+  cwd: string,
+  allowedRelativePaths: Set<string>
+): void {
+  const workspaceName = getWorkspaceName(cwd);
+  const workspaceRoot = join(vaultPath, "vault", workspaceName);
+  if (!existsSync(workspaceRoot)) return;
+
+  const toDelete: string[] = [];
+  const walk = (dir: string, prefix: string) => {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const e of entries) {
+      const full = join(dir, e.name);
+      const rel = prefix ? `${prefix}/${e.name}` : e.name;
+      if (e.isDirectory()) {
+        walk(full, rel);
+      } else {
+        if (!allowedRelativePaths.has(rel)) toDelete.push(full);
+      }
+    }
+  };
+  walk(workspaceRoot, "");
+  for (const f of toDelete) rmSync(f, { force: true });
+
+  const removeEmptyDirs = (dir: string): void => {
+    if (!existsSync(dir)) return;
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const e of entries) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) removeEmptyDirs(full);
+    }
+    if (readdirSync(dir).length === 0) rmSync(dir, { recursive: true });
+  };
+  removeEmptyDirs(workspaceRoot);
+}
+
 export function copyFromVault(vaultPath: string, cwd: string, specificPaths?: string[]): number {
   const workspaceName = getWorkspaceName(cwd);
   const workspaceRoot = join(vaultPath, "vault", workspaceName);
@@ -221,6 +262,8 @@ export async function storeToVault(cwd: string): Promise<number> {
   return withTempVault(cwd, async (vaultPath, git) => {
     const config = loadConfig(cwd)!;
     copyToVault(files, vaultPath, cwd);
+    const allowed = new Set(files.map((f) => f.relativePath));
+    removeExcludedFromVault(vaultPath, cwd, allowed);
     const status = await git.status();
     const hasChanges =
       status.files.length > 0 || status.not_added.length > 0 || status.deleted.length > 0;
@@ -255,6 +298,8 @@ export async function syncVault(cwd: string): Promise<{ pulled: number; stored: 
   const stored = await withTempVault(cwd, async (vaultPath, git) => {
     const config = loadConfig(cwd)!;
     copyToVault(files, vaultPath, cwd);
+    const allowed = new Set(files.map((f) => f.relativePath));
+    removeExcludedFromVault(vaultPath, cwd, allowed);
     const status = await git.status();
     const hasChanges =
       status.files.length > 0 || status.not_added.length > 0 || status.deleted.length > 0;
