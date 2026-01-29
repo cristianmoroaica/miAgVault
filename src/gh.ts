@@ -75,6 +75,20 @@ export function isGhAvailable(): boolean {
 }
 
 /**
+ * Ensure Git uses gh for credentials when talking to GitHub.
+ * Runs `gh auth setup-git` so clone/push use existing gh login instead of prompting for username/password.
+ * Safe to call repeatedly; no-op if gh is not available.
+ */
+export function ensureGhGitAuth(): void {
+  if (!isGhAvailable()) return;
+  try {
+    spawnSync("gh", ["auth", "setup-git"], { stdio: "pipe", shell: true, encoding: "utf-8" });
+  } catch {
+    // ignore; git will fall back to other credential helpers or prompt
+  }
+}
+
+/**
  * Create a private GitHub repo from a local path and push.
  * Uses `gh repo create owner/repo --private --source=path --remote=origin --push`.
  * Returns true if repo was created and pushed; false if gh not available or command failed.

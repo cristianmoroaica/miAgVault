@@ -5,7 +5,7 @@ import { glob } from "glob";
 import { simpleGit } from "simple-git";
 import type { SimpleGit } from "simple-git";
 import { VAULT_DIR, loadConfig } from "./config.js";
-import { createGitHubRepoAndPush, isGhAvailable, parseGitHubRepoUrl } from "./gh.js";
+import { createGitHubRepoAndPush, ensureGhGitAuth, isGhAvailable, parseGitHubRepoUrl } from "./gh.js";
 
 export interface VaultFile {
   path: string;
@@ -63,6 +63,11 @@ export async function withTempVault<T>(
   if (!config?.repoUrl) throw new Error("Not initialized. Run 'agvault init' first.");
   const branch = config.branch || "main";
   const tempDir = mkdtempSync(join(tmpdir(), "agvault-"));
+
+  // Use gh for Git credentials when available so pull/sync don't prompt for username/password
+  if (parseGitHubRepoUrl(config.repoUrl) && isGhAvailable()) {
+    ensureGhGitAuth();
+  }
 
   try {
     try {
